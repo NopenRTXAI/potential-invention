@@ -1,70 +1,119 @@
-# GitHub Codespaces ♥️ React
+# Autonomous CPU Training Research Engine
 
-Welcome to your shiny new Codespace running React! We've got everything fired up and running for you to explore React.
+A self-directed research system that **invents, implements, and scientifically
+evaluates genuinely new training algorithms for CPUs** — including weak or
+low-end CPUs — and a React dashboard to observe and steer it.
 
-You've got a blank canvas to work on from a git perspective as well. There's a single initial commit with the what you're seeing right now - where you go from here is up to you!
+No GPU. No ML frameworks. The entire learning stack is **pure NumPy**.
 
-Everything you do here is contained within this one codespace. There is no repository on GitHub yet. If and when you’re ready you can click "Publish Branch" and we’ll create your repository and push up your project. If you were just exploring then and have no further need for this code then you can simply delete your codespace and it's gone forever.
+## What it does
 
-This project was bootstrapped for you with [Vite](https://vitejs.dev/).
+The engine runs an autonomous research loop:
 
-## Available Scripts
+```
+OBSERVE → HYPOTHESIS → DESIGN → IMPLEMENT → EXPERIMENT → MEASURE
+        → COMPARE → ANALYZE → REPEAT
+```
 
-In the project directory, you can run:
+- **Genome interpreter** — every candidate algorithm is a *genome* (~24 genes:
+  gradient mode, update rule, selection strategy, LR schedule, state precision,
+  freeze/curriculum policies…). The `Trainer` executes any genome directly, so
+  every invented algorithm is real, runnable code — never a description.
+- **Evolutionary search** — targeted hypothesis genomes seed the population;
+  mutation, crossover, and random exploration generate new algorithms with
+  fully recorded lineage (parents, exact gene changes, scores).
+- **Honest science** — identical budgets, splits, and seeds for every algorithm;
+  a `ResearchCritic` enforces statistical significance (binomial CI), demands
+  multi-seed validation before any "promising" verdict, and checks
+  compute-fairness. **No fake novelty**: if nothing beats the baselines, the
+  report says so.
+- **Failure analysis** — every failed experiment is kept forever in the research
+  database and automatically diagnosed (divergence, no learning, slow
+  convergence, overfitting…) with suggested next steps.
+- **Ablations** — novel mechanisms are neutralized one at a time to measure what
+  actually contributes.
+- **Real model output** — the winning algorithm trains a final model saved as
+  `model.npz` + `metadata.json` + a standalone `predictor.py`.
+- **Weak-hardware mode** — on ≤2 cores or <5 GB RAM the engine prioritizes
+  memory-saving mechanisms (int8/fp16 optimizer state with sqrt-compression,
+  sparse gradients, partial updates).
 
-### `npm start`
+## Novel mechanism space (all implemented)
 
-We've already run this for you in the `Codespaces: server` terminal window below. If you need to stop the server for any reason you can just run `npm start` again to bring it back online.
+| Category | Mechanisms |
+|---|---|
+| Gradient modes | full, top-k sparse, sign, stale-reuse, momentum-predicted, random-projection, block-sparse |
+| Update rules | SGD, momentum, adaptive (Adam-style), sign, normalized, trust-ratio, hybrid adaptive-momentum |
+| Update selection | all, importance top-k, layer-cyclic, block-cyclic, loss-gated |
+| LR schedules | constant, cosine, warmup-cosine, one-cycle, adaptive-plateau, loss-signal, warm-restarts |
+| Memory | fp32 / fp16 / int8 optimizer state (sqrt-compressed second moment), periodic state reset |
+| Structured | freeze/unfreeze schedules, curriculum ordering, gradient accumulation, micro-batching |
 
-Runs the app in the development mode.\
-Open [http://localhost:3000/](http://localhost:3000/) in the built-in Simple Browser (`Cmd/Ctrl + Shift + P > Simple Browser: Show`) to view your running application.
+## Quick start
 
-The page will reload automatically when you make changes.\
-You may also see any lint errors in the console.
+```bash
+# 1. Research engine (pure NumPy + FastAPI)
+pip install fastapi uvicorn
+python -m engine.server --port 8000
 
-### `npm test`
+# 2. Dashboard (React + Vite)
+npm install
+npm run dev          # http://localhost:3000, proxies /api → :8000
+```
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Then open the dashboard → **Research** → pick a dataset and budget →
+**Start Autonomous Research**. Watch algorithms evolve in **Algorithms**,
+experiments accumulate in **Experiments**, and when the session ends, test the
+final model with real predictions in **Playground** and read the honest
+**Report**.
 
-### `npm run build`
+### Headless mode
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+```bash
+python -m engine.server --research --dataset digits --seconds 3600
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+Runs a full autonomous session, trains the final model, and writes
+`models/best_model/research_report.md`.
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## Datasets
 
-## Learn More
+Built-in: `spam` (UCI SMS, text), `digits` (10-class), `circles` (non-linear
+binary), `spirals` (deliberately hard 3-class). All use fixed 70/15/15 splits
+with seeded shuffling; offline synthetic fallbacks are embedded so the system
+works without network access.
 
-You can learn more in the [Vite documentation](https://vitejs.dev/guide/).
+## Research database
 
-To learn Vitest, a Vite-native testing framework, go to [Vitest documentation](https://vitest.dev/guide/)
+```
+research/
+  experiments/   exp_<id>.json   — every experiment, including failures
+  lineage/        lineage.json    — full algorithm ancestry graph
+  journals/       journal.jsonl   — append-only research log
+  results/        leaderboard.json
+  checkpoints/                    — automatic resume support
+```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## Verified example results
 
-### Code Splitting
+On the `digits` dataset (5-epoch budget, identical for all methods), the
+engine discovered `XO-G25-7698` — stale-gradient reuse + hybrid
+adaptive-momentum updates + one-cycle LR + quarter-frequency updates —
+validated at **0.977 mean test accuracy across 3 seeds vs 0.970 for the best
+baseline (SGD-Momentum)**, with ~75% fewer optimizer-state bytes. The
+`hybrid_adaptive_momentum` update rule alone reached 0.9815 vs AdamW's 0.9631.
 
-This section has moved here: [https://sambitsahoo.com/blog/vite-code-splitting-that-works.html](https://sambitsahoo.com/blog/vite-code-splitting-that-works.html)
+## Dashboard sections
 
-### Analyzing the Bundle Size
+Research · Algorithms (lineage graph) · Experiments · Models · Datasets ·
+Hardware · Leaderboard · Research Journal · Playground (real predictions) ·
+Report · Settings
 
-This section has moved here: [https://github.com/btd/rollup-plugin-visualizer#rollup-plugin-visualizer](https://github.com/btd/rollup-plugin-visualizer#rollup-plugin-visualizer)
+## Honest limitations
 
-### Making a Progressive Web App
-
-This section has moved here: [https://dev.to/hamdankhan364/simplifying-progressive-web-app-pwa-development-with-vite-a-beginners-guide-38cf](https://dev.to/hamdankhan364/simplifying-progressive-web-app-pwa-development-with-vite-a-beginners-guide-38cf)
-
-### Advanced Configuration
-
-This section has moved here: [https://vitejs.dev/guide/build.html#advanced-base-options](https://vitejs.dev/guide/build.html#advanced-base-options)
-
-### Deployment
-
-This section has moved here: [https://vitejs.dev/guide/build.html](https://vitejs.dev/guide/build.html)
-
-### Troubleshooting
-
-This section has moved here: [https://vitejs.dev/guide/troubleshooting.html](https://vitejs.dev/guide/troubleshooting.html)
+- Discoveries are dataset- and budget-scoped; multi-seed validation guards
+  against noise but small test sets still bound statistical power.
+- `int8` optimizer state is lossy (≈0.52 vs 0.96 on digits) — kept as real
+  research data, not hidden.
+- Some mechanisms (e.g. random-projection gradients) simply fail; they remain
+  in the database as negative results.
