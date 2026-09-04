@@ -162,3 +162,19 @@ real generated English (not templates), but replies are often grammatically
 broken or off-topic — ChatGPT-class quality needs billions of parameters and
 GPU-scale training. Longer retraining (e.g. `minutes: 120`) improves fluency
 but will not change that order of magnitude.
+
+### Hugging Face streaming datasets
+
+For very large corpora, use `engine.hf_stream.stream_dialogues()` with a
+specific Hugging Face dataset ID. It uses `streaming=True`, yields small
+batches, and does not materialize the corpus on disk:
+
+```bash
+pip install -r requirements.txt
+python -c "from engine.hf_stream import stream_stats; print(stream_stats('DATASET_ID', max_dialogues=1000))"
+```
+
+Streaming avoids a full 12GB download, but the examples still pass through
+the network and CPU. Check the dataset license and schema before training.
+The adapter supports common `text`, `dialogue`, `conversation`, and
+`messages` fields; provide the exact dataset ID before a long run.
