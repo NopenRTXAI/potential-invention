@@ -76,6 +76,9 @@ Endpoints:
   GET  /api/model             best model info (if trained)
   POST /api/playground        real prediction with the trained model
   GET  /api/report            final research report (markdown)
+  GET  /api/chat/status       chat model info (if trained)
+  POST /api/chat              generate a real reply {message, history}
+  POST /api/chat/train        train the chat model (background)
 """
 
 import os
@@ -106,6 +109,11 @@ STATE = {
     "hardware": detect_hardware(),
     "final_model": None,   # (meta, model) after training
     "last_error": None,
+    "chat_bot": None,          # engine.chat.ChatBot after training
+    "chat_meta": None,         # metadata dict
+    "chat_thread": None,       # training thread
+    "chat_progress": {},       # live training progress
+    "chat_error": None,
 }
 
 
@@ -126,6 +134,21 @@ class ResearchStartReq(BaseModel):
 class PlaygroundReq(BaseModel):
     text: str | None = None
     vector: list[float] | None = None
+
+
+class ChatReq(BaseModel):
+    message: str
+    history: list[dict] = []   # [{speaker: "u"|"a", text: "..."}]
+
+
+class ChatTrainReq(BaseModel):
+    minutes: float = 30.0
+    d_model: int = 128
+    n_layers: int = 3
+    n_heads: int = 4
+    block: int = 96
+    vocab: int = 5000
+    epochs: int = 3
 
 
 # ---------------------------------------------------------------- helpers
@@ -327,6 +350,97 @@ def report():
         with open(p) as f:
             return {"markdown": f.read()}
     raise HTTPException(404, "no report yet — research must complete first")
+
+
+# ---------------------------------------------------------------- chat
+
+def _chat_train_thread(req):
+    """Train TinyGPT on DailyDialog in the background."""
+    try:
+        from . import chat as C
+        dialogs = C.load_dialogues()
+        texts = [u for d in dialogs for u in d]
+        tok = C.Tokenizer().build(texts, min_count=3, max_vocab=req.vocab)
+        X, Y = C.make_samples(tok, dialogs, block=req.block)
+        STATE["chat_progress"] = {"stage": "training", "samples": int(X.shape[0]),
+                                  "vocab": tok.size, "steps": 0, "loss": None}
+
+        def cb(entry):
+            STATE["chat_progress"].update(
+                steps=entry["step"], loss=round(entry["loss"], 4),
+                epoch=entry["epoch"], elapsed_min=round(entry["elapsed"] / 60, 1))
+
+        model, hist = C.train(
+            tok, X, Y, d_model=req.d_model, n_layers=req.n_layers,
+            n_heads=req.n_heads, block=req.block, epochs=req.epochs,
+            batch=32, lr=3e-4, max_minutes=req.minutes, callback=cb)
+        C.save(model, tok, hist)
+        bot = C.ChatBot(model, tok, block=req.block)
+        STATE["chat_bot"] = bot
+        STATE["chat_meta"] = {
+            "params": model.param_count(), "vocab": tok.size,
+            "d_model": req.d_model, "n_layers": req.n_layers,
+            "n_heads": req.n_heads, "block": req.block,
+            "samples": int(X.shape[0]), "epochs": req.epochs,
+            "final_loss": hist[-1]["loss"] if hist else None,
+            "steps": hist[-1]["step"] if hist else 0,
+        }
+        STATE["chat_progress"] = {"stage": "done", **STATE["chat_meta"]}
+    except Exception as e:
+        STATE["chat_error"] = f"{e}\n{traceback.format_exc()}"
+        STATE["chat_progress"] = {"stage": "error", "error": str(e)}
+
+
+@app.get("/api/chat/status")
+def chat_status():
+    if STATE["chat_bot"] is None:
+        try:
+            from . import chat as C
+            model, tok, meta = C.load()
+            STATE["chat_bot"] = C.ChatBot(model, tok, block=meta["block"])
+            STATE["chat_meta"] = meta
+        except Exception:
+            pass
+    return {
+        "trained": STATE["chat_bot"] is not None,
+        "training": STATE["chat_thread"] is not None
+                    and STATE["chat_thread"].is_alive(),
+        "progress": STATE["chat_progress"],
+        "meta": STATE["chat_meta"],
+        "error": STATE["chat_error"],
+    }
+
+
+@app.post("/api/chat")
+def chat(req: ChatReq):
+    if STATE["chat_bot"] is None:
+        try:
+            from . import chat as C
+            model, tok, meta = C.load()
+            STATE["chat_bot"] = C.ChatBot(model, tok, block=meta["block"])
+            STATE["chat_meta"] = meta
+        except Exception:
+            raise HTTPException(404, "chat model not trained yet — "
+                                "POST /api/chat/train first")
+    history = [(m.get("speaker", "u"), m.get("text", ""))
+               for m in req.history][-6:]
+    try:
+        reply = STATE["chat_bot"].reply(history + [("u", req.message)])
+        return {"reply": reply}
+    except Exception as e:
+        raise HTTPException(400, f"generation failed: {e}")
+
+
+@app.post("/api/chat/train")
+def chat_train(req: ChatTrainReq):
+    if STATE["chat_thread"] is not None and STATE["chat_thread"].is_alive():
+        return {"started": False, "reason": "training already running"}
+    STATE["chat_error"] = None
+    STATE["chat_progress"] = {"stage": "loading"}
+    t = threading.Thread(target=_chat_train_thread, args=(req,), daemon=True)
+    STATE["chat_thread"] = t
+    t.start()
+    return {"started": True}
 
 
 @app.get("/api/health")

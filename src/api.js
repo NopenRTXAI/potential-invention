@@ -33,6 +33,14 @@ export const api = {
   stopResearch: () => req('/api/research/stop', { method: 'POST' }),
   playground: (payload) =>
     req('/api/playground', { method: 'POST', body: JSON.stringify(payload) }),
+  chatStatus: () => req('/api/chat/status'),
+  chat: (message, history) =>
+    req('/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, history }),
+    }),
+  chatTrain: (cfg = {}) =>
+    req('/api/chat/train', { method: 'POST', body: JSON.stringify(cfg) }),
 };
 
 export const fmt = {

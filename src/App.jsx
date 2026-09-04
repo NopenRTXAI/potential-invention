@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, Fragment } from 'react';
+import { useEffect, useState, useCallback, useRef, Fragment } from 'react';
 import { api, fmt } from './api.js';
 
 // ================================================================ helpers
@@ -775,6 +775,142 @@ function JournalSection() {
 
 // ================================================================ Playground
 
+function ChatSection() {
+  const [messages, setMessages] = useState([]); // {role: 'u'|'a', text}
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [chatStatus, reloadChat] = usePoll(api.chatStatus, 4000, []);
+  const [training, setTraining] = useState(false);
+  const [minutes, setMinutes] = useState(30);
+  const endRef = useRef(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const trained = chatStatus?.trained;
+  const isTraining = chatStatus?.training;
+  const prog = chatStatus?.progress || {};
+
+  async function send() {
+    const text = input.trim();
+    if (!text || busy) return;
+    setInput('');
+    setMessages((m) => [...m, { role: 'u', text }]);
+    setBusy(true);
+    try {
+      const history = messages.slice(-6).map((m) => ({
+        speaker: m.role,
+        text: m.text,
+      }));
+      const r = await api.chat(text, history);
+      setMessages((m) => [...m, { role: 'a', text: r.reply }]);
+    } catch (e) {
+      setMessages((m) => [
+        ...m,
+        { role: 'a', text: `⚠️ ${e.message}` },
+      ]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startTraining() {
+    setTraining(true);
+    try {
+      await api.chatTrain({ minutes: Number(minutes) });
+      reloadChat();
+    } catch (e) {
+      alert(`Training failed to start: ${e.message}`);
+    } finally {
+      setTraining(false);
+    }
+  }
+
+  return (
+    <section className="section">
+      <h2>💬 TinyGPT Chat</h2>
+      <p className="muted">
+        A real decoder-only transformer (pure NumPy) trained on{' '}
+        <b>11,118 real human conversations</b> (DailyDialog). It generates
+        replies token-by-token with next-token prediction — no retrieval, no
+        templates. Small model, honest quality: replies are simple English.
+      </p>
+
+      <div className="chat-status-bar">
+        {trained ? (
+          <span className="ok-chip">
+            ✓ Model ready — {chatStatus.meta?.params?.toLocaleString()} params,
+            vocab {chatStatus.meta?.vocab}, loss{' '}
+            {chatStatus.meta?.final_loss?.toFixed(3)}
+          </span>
+        ) : isTraining ? (
+          <span className="warn-chip">
+            ⏳ Training — {prog.stage}, step {prog.steps || 0}, loss{' '}
+            {prog.loss ?? '—'}, {prog.elapsed_min ?? 0} min
+          </span>
+        ) : (
+          <span className="muted">No chat model yet — train it below.</span>
+        )}
+        {chatStatus?.error && (
+          <div className="error-banner">{chatStatus.error}</div>
+        )}
+      </div>
+
+      <div className="chat-box">
+        {messages.length === 0 && (
+          <div className="muted chat-hint">
+            Say something in English, e.g. <i>“how was your day?”</i>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} className={`chat-msg ${m.role}`}>
+            <div className="bubble">{m.text}</div>
+          </div>
+        ))}
+        {busy && <div className="chat-msg a"><div className="bubble">…</div></div>}
+        <div ref={endRef} />
+      </div>
+
+      <div className="chat-input-row">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && send()}
+          placeholder={trained ? 'Type a message…' : 'Train the model first'}
+          disabled={!trained || busy}
+        />
+        <button onClick={send} disabled={!trained || busy || !input.trim()}>
+          Send
+        </button>
+      </div>
+
+      {!trained && !isTraining && (
+        <div className="chat-train-row">
+          <label>
+            Training minutes:{' '}
+            <input
+              type="number"
+              min="5"
+              max="240"
+              value={minutes}
+              onChange={(e) => setMinutes(e.target.value)}
+              style={{ width: 70 }}
+            />
+          </label>
+          <button
+            className="primary"
+            onClick={startTraining}
+            disabled={training}
+          >
+            {training ? 'Starting…' : `🚂 Train TinyGPT (${minutes} min)`}
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function PlaygroundSection() {
   const [text, setText] = useState('Congratulations! You won a $5000 prize, click to claim now!');
   const [result, setResult] = useState(null);
@@ -786,6 +922,19 @@ function PlaygroundSection() {
     api.model().then(setModel).catch(() => {});
   }, []);
 
+  // Speak the prediction out loud using the browser's speech synthesis
+  const speak = (r) => {
+    if (!r || !('speechSynthesis' in window)) return;
+    const conf = Math.round((r.confidence || 0) * 100);
+    const utter = new SpeechSynthesisUtterance(
+      `The message is ${r.label}. Confidence ${conf} percent.`
+    );
+    utter.lang = 'en-US';
+    utter.rate = 1;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utter);
+  };
+
   const run = async () => {
     setBusy(true);
     setErr(null);
@@ -793,6 +942,7 @@ function PlaygroundSection() {
     try {
       const r = await api.playground(text.trim() ? { text: text } : {});
       setResult(r);
+      speak(r); // announce the prediction out loud
     } catch (e) {
       setErr(String(e.message || e));
     }
@@ -843,6 +993,9 @@ function PlaygroundSection() {
         <button className="btn" onClick={run} disabled={busy}>
           {busy ? 'Predicting…' : 'Predict'}
         </button>
+        <span style={{ marginLeft: 10, fontSize: 12, color: 'var(--text-faint)' }}>
+          The result is also spoken out loud automatically.
+        </span>
       </div>
 
       {err && <div className="error-banner">{err}</div>}
@@ -851,6 +1004,14 @@ function PlaygroundSection() {
         <div className="pred-result">
           <div className="label-big">{result.label}</div>
           <div className="conf">confidence {fmt.pct(result.confidence)}</div>
+          <button
+            className="btn secondary"
+            style={{ marginTop: 12 }}
+            onClick={() => speak(result)}
+            title="Speak the prediction out loud"
+          >
+            🔊 Speak
+          </button>
           <div style={{ marginTop: 16 }}>
             {Object.entries(result.probabilities || {})
               .sort((a, b) => b[1] - a[1])
@@ -994,6 +1155,7 @@ const SECTIONS = [
   { id: 'hardware', label: 'Hardware', ico: '🖥' },
   { id: 'leaderboard', label: 'Leaderboard', ico: '🏆' },
   { id: 'journal', label: 'Research Journal', ico: '📓' },
+  { id: 'chat', label: 'Chat', ico: '💬' },
   { id: 'playground', label: 'Playground', ico: '🎮' },
   { id: 'report', label: 'Report', ico: '📄' },
   { id: 'settings', label: 'Settings', ico: '⚙️' },
@@ -1042,6 +1204,7 @@ export default function App() {
         {section === 'hardware' && <HardwareSection hardware={hw} />}
         {section === 'leaderboard' && <LeaderboardSection />}
         {section === 'journal' && <JournalSection />}
+        {section === 'chat' && <ChatSection />}
         {section === 'playground' && <PlaygroundSection />}
         {section === 'report' && <ReportSection />}
         {section === 'settings' && <SettingsSection hardware={hw} />}
