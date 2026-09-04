@@ -79,6 +79,11 @@ Endpoints:
   GET  /api/chat/status       chat model info (if trained)
   POST /api/chat              generate a real reply {message, history}
   POST /api/chat/train        train the chat model (background)
+  GET  /api/weblearn/status   self-learning loop state + journal
+  POST /api/weblearn/start    start autonomous web learning loop
+  POST /api/weblearn/stop     stop the loop
+  POST /api/weblearn/now      run one learn cycle immediately
+  GET  /api/weblearn/search?q= web search (DuckDuckGo + Wikipedia)
 """
 
 import os
@@ -114,6 +119,8 @@ STATE = {
     "chat_thread": None,       # training thread
     "chat_progress": {},       # live training progress
     "chat_error": None,
+    "weblearn_loop": None,     # engine.weblearn.WebLearnLoop
+    "weblearn_holder": {"bot": None, "meta": None},  # shared with loop
 }
 
 
@@ -142,13 +149,24 @@ class ChatReq(BaseModel):
 
 
 class ChatTrainReq(BaseModel):
-    minutes: float = 30.0
-    d_model: int = 128
-    n_layers: int = 3
-    n_heads: int = 4
-    block: int = 96
-    vocab: int = 5000
-    epochs: int = 3
+    minutes: float = 240.0          # 4 hours default
+    d_model: int = 512             # 30M params config
+    n_layers: int = 7
+    n_heads: int = 8
+    block: int = 128
+    vocab: int = 16000
+    epochs: int = 2
+
+
+class WebLearnReq(BaseModel):
+    interval_min: float = 30.0     # learn every N minutes
+    learn_minutes: float = 3.0     # fine-tune duration per cycle
+
+
+class ChatSearchReq(BaseModel):
+    message: str
+    history: list[dict] = []
+    use_web: bool = True           # include web results in reply
 
 
 # ---------------------------------------------------------------- helpers
@@ -355,7 +373,7 @@ def report():
 # ---------------------------------------------------------------- chat
 
 def _chat_train_thread(req):
-    """Train TinyGPT on DailyDialog in the background."""
+    """Train TinyGPT on DailyDialog+SODA in the background (30M config)."""
     try:
         from . import chat as C
         dialogs = C.load_dialogues()
@@ -386,6 +404,9 @@ def _chat_train_thread(req):
             "steps": hist[-1]["step"] if hist else 0,
         }
         STATE["chat_progress"] = {"stage": "done", **STATE["chat_meta"]}
+        # register with the self-learning loop
+        STATE["weblearn_holder"]["bot"] = bot
+        STATE["weblearn_holder"]["meta"] = STATE["chat_meta"]
     except Exception as e:
         STATE["chat_error"] = f"{e}\n{traceback.format_exc()}"
         STATE["chat_progress"] = {"stage": "error", "error": str(e)}
@@ -419,6 +440,8 @@ def chat(req: ChatReq):
             model, tok, meta = C.load()
             STATE["chat_bot"] = C.ChatBot(model, tok, block=meta["block"])
             STATE["chat_meta"] = meta
+            STATE["weblearn_holder"]["bot"] = STATE["chat_bot"]
+            STATE["weblearn_holder"]["meta"] = meta
         except Exception:
             raise HTTPException(404, "chat model not trained yet — "
                                 "POST /api/chat/train first")
@@ -431,6 +454,40 @@ def chat(req: ChatReq):
         raise HTTPException(400, f"generation failed: {e}")
 
 
+@app.post("/api/chat/smart")
+def chat_smart(req: ChatSearchReq):
+    """Chat with web search: model reply + real web facts with sources."""
+    from . import weblearn as W
+    web = None
+    if req.use_web:
+        try:
+            web = W.web_answer(req.message)
+        except Exception:
+            web = None
+    if STATE["chat_bot"] is None:
+        try:
+            from . import chat as C
+            model, tok, meta = C.load()
+            STATE["chat_bot"] = C.ChatBot(model, tok, block=meta["block"])
+            STATE["chat_meta"] = meta
+            STATE["weblearn_holder"]["bot"] = STATE["chat_bot"]
+            STATE["weblearn_holder"]["meta"] = meta
+        except Exception:
+            pass  # model reply will be None; web answer may still exist
+    reply = None
+    if STATE["chat_bot"] is not None:
+        try:
+            history = [(m.get("speaker", "u"), m.get("text", ""))
+                       for m in req.history][-6:]
+            reply = STATE["chat_bot"].reply(history + [("u", req.message)])
+        except Exception:
+            reply = None
+    if reply is None and web is None:
+        raise HTTPException(404, "no chat model and no web answer — "
+                            "train the model first")
+    return {"reply": reply, "web": web}
+
+
 @app.post("/api/chat/train")
 def chat_train(req: ChatTrainReq):
     if STATE["chat_thread"] is not None and STATE["chat_thread"].is_alive():
@@ -441,6 +498,74 @@ def chat_train(req: ChatTrainReq):
     STATE["chat_thread"] = t
     t.start()
     return {"started": True}
+
+
+# ---------------------------------------------------------------- weblearn
+
+@app.get("/api/weblearn/status")
+def weblearn_status():
+    from . import weblearn as W
+    loop = STATE.get("weblearn_loop")
+    running = loop is not None and loop.is_alive()
+    return {
+        "running": running,
+        "loop_status": loop.status if running else "stopped",
+        "interval_min": loop.interval_min if loop else None,
+        "last_entry": loop.last_entry if loop else None,
+        "stats": W.stats(),
+        "journal": W.read_journal(30),
+    }
+
+
+@app.post("/api/weblearn/start")
+def weblearn_start(req: WebLearnReq):
+    from . import weblearn as W
+    loop = STATE.get("weblearn_loop")
+    if loop is not None and loop.is_alive():
+        return {"started": False, "reason": "already running",
+                "interval_min": loop.interval_min}
+    # make sure holder has the current bot
+    if STATE["weblearn_holder"]["bot"] is None and STATE["chat_bot"]:
+        STATE["weblearn_holder"]["bot"] = STATE["chat_bot"]
+        STATE["weblearn_holder"]["meta"] = STATE["chat_meta"]
+    loop = W.WebLearnLoop(STATE["weblearn_holder"],
+                          interval_min=req.interval_min,
+                          learn_minutes=req.learn_minutes)
+    STATE["weblearn_loop"] = loop
+    loop.start()
+    return {"started": True, "interval_min": req.interval_min,
+            "learn_minutes": req.learn_minutes}
+
+
+@app.post("/api/weblearn/stop")
+def weblearn_stop():
+    loop = STATE.get("weblearn_loop")
+    if loop is None or not loop.is_alive():
+        return {"stopped": False, "reason": "not running"}
+    loop.stop_flag.set()
+    return {"stopped": True}
+
+
+@app.post("/api/weblearn/now")
+def weblearn_now():
+    """Run one learn cycle immediately (synchronous, ~1-4 min)."""
+    from . import weblearn as W
+    if STATE["weblearn_holder"]["bot"] is None and STATE["chat_bot"]:
+        STATE["weblearn_holder"]["bot"] = STATE["chat_bot"]
+        STATE["weblearn_holder"]["meta"] = STATE["chat_meta"]
+    entry = W.learn_cycle(STATE["weblearn_holder"], minutes=2)
+    return {"entry": entry, "stats": W.stats()}
+
+
+@app.get("/api/weblearn/search")
+def weblearn_search(q: str = ""):
+    from . import weblearn as W
+    if not q.strip():
+        raise HTTPException(400, "missing ?q= parameter")
+    try:
+        return {"results": W.web_search(q)}
+    except Exception as e:
+        raise HTTPException(400, f"search failed: {e}")
 
 
 @app.get("/api/health")

@@ -557,3 +557,13 @@ code.inline { font-family: var(--mono); font-size: 12px; background: var(--panel
   border: 1px dashed rgba(255, 255, 255, 0.15);
 }
 .chat-train-row label { font-size: 13px; color: #9ca3af; }
+
+/* web answers + self-learning */
+.web-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #c9d1d9; }
+.web-answer { margin-top: 8px; padding: 8px 10px; background: rgba(56,139,253,0.08); border-left: 3px solid #388bfd; border-radius: 4px; font-size: 12px; }
+.web-source { font-size: 11px; color: #58a6ff; margin-bottom: 4px; word-break: break-all; }
+.web-source a { color: #58a6ff; }
+.web-text { color: #c9d1d9; line-height: 1.5; }
+.wl-journal { margin-top: 14px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 6px; }
+.wl-journal h4 { margin: 0 0 8px; font-size: 13px; color: #d2a8ff; }
+.wl-entry { font-size: 12px; color: #8b949e; padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); }

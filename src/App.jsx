@@ -776,12 +776,15 @@ function JournalSection() {
 // ================================================================ Playground
 
 function ChatSection() {
-  const [messages, setMessages] = useState([]); // {role: 'u'|'a', text}
+  const [messages, setMessages] = useState([]); // {role: 'u'|'a', text, web}
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [chatStatus, reloadChat] = usePoll(api.chatStatus, 4000, []);
+  const [wlStatus, reloadWl] = usePoll(api.weblearnStatus, 8000, []);
   const [training, setTraining] = useState(false);
-  const [minutes, setMinutes] = useState(30);
+  const [minutes, setMinutes] = useState(240);
+  const [useWeb, setUseWeb] = useState(true);
+  const [wlBusy, setWlBusy] = useState(false);
   const endRef = useRef(null);
 
   useEffect(() => {
@@ -791,6 +794,8 @@ function ChatSection() {
   const trained = chatStatus?.trained;
   const isTraining = chatStatus?.training;
   const prog = chatStatus?.progress || {};
+  const wl = wlStatus || {};
+  const wlStats = wl.stats || {};
 
   async function send() {
     const text = input.trim();
@@ -803,8 +808,13 @@ function ChatSection() {
         speaker: m.role,
         text: m.text,
       }));
-      const r = await api.chat(text, history);
-      setMessages((m) => [...m, { role: 'a', text: r.reply }]);
+      const r = useWeb
+        ? await api.chatSmart(text, history, true)
+        : await api.chat(text, history);
+      setMessages((m) => [
+        ...m,
+        { role: 'a', text: r.reply || '(no model reply)', web: r.web },
+      ]);
     } catch (e) {
       setMessages((m) => [
         ...m,
@@ -818,7 +828,15 @@ function ChatSection() {
   async function startTraining() {
     setTraining(true);
     try {
-      await api.chatTrain({ minutes: Number(minutes) });
+      await api.chatTrain({
+        minutes: Number(minutes),
+        d_model: 512,
+        n_layers: 7,
+        n_heads: 8,
+        block: 128,
+        vocab: 16000,
+        epochs: 2,
+      });
       reloadChat();
     } catch (e) {
       alert(`Training failed to start: ${e.message}`);
@@ -827,14 +845,42 @@ function ChatSection() {
     }
   }
 
+  async function toggleWeblearn() {
+    setWlBusy(true);
+    try {
+      if (wl.running) {
+        await api.weblearnStop();
+      } else {
+        await api.weblearnStart({ interval_min: 30, learn_minutes: 3 });
+      }
+      reloadWl();
+    } catch (e) {
+      alert(`Web learning failed: ${e.message}`);
+    } finally {
+      setWlBusy(false);
+    }
+  }
+
+  async function learnNow() {
+    setWlBusy(true);
+    try {
+      await api.weblearnNow();
+      reloadWl();
+    } catch (e) {
+      alert(`Learn-now failed: ${e.message}`);
+    } finally {
+      setWlBusy(false);
+    }
+  }
+
   return (
     <section className="section">
       <h2>💬 TinyGPT Chat</h2>
       <p className="muted">
         A real decoder-only transformer (pure NumPy) trained on{' '}
-        <b>11,118 real human conversations</b> (DailyDialog). It generates
-        replies token-by-token with next-token prediction — no retrieval, no
-        templates. Small model, honest quality: replies are simple English.
+        <b>451,118 real conversations</b> (DailyDialog + SODA). It generates
+        replies token-by-token — no templates. Toggle <b>🌐 Web</b> to also
+        fetch real facts from the internet with sources.
       </p>
 
       <div className="chat-status-bar">
@@ -857,15 +903,53 @@ function ChatSection() {
         )}
       </div>
 
+      <div className="chat-status-bar">
+        <label className="web-toggle">
+          <input
+            type="checkbox"
+            checked={useWeb}
+            onChange={(e) => setUseWeb(e.target.checked)}
+          />
+          🌐 Web answers (search the internet for facts)
+        </label>
+        <span className={wl.running ? 'ok-chip' : 'muted'}>
+          {wl.running
+            ? `🧠 Self-learning: ${wl.loop_status} — ${wlStats.items_learned || 0} items, ${(
+                wlStats.total_tokens || 0
+              ).toLocaleString()} tokens`
+            : '🧠 Self-learning: off'}
+        </span>
+        <button onClick={toggleWeblearn} disabled={wlBusy || !trained}>
+          {wl.running ? 'Stop' : 'Start'} auto-learn
+        </button>
+        <button onClick={learnNow} disabled={wlBusy || !trained}>
+          Learn now
+        </button>
+      </div>
+
       <div className="chat-box">
         {messages.length === 0 && (
           <div className="muted chat-hint">
-            Say something in English, e.g. <i>“how was your day?”</i>
+            Say something in English, e.g. <i>“how was your day?”</i> or ask a
+            factual question like <i>“what is python?”</i> with 🌐 on.
           </div>
         )}
         {messages.map((m, i) => (
           <div key={i} className={`chat-msg ${m.role}`}>
-            <div className="bubble">{m.text}</div>
+            <div className="bubble">
+              {m.text}
+              {m.web && (
+                <div className="web-answer">
+                  <div className="web-source">
+                    🌐 {m.web.source}:{' '}
+                    <a href={m.web.url} target="_blank" rel="noreferrer">
+                      {m.web.url}
+                    </a>
+                  </div>
+                  <div className="web-text">{m.web.answer}</div>
+                </div>
+              )}
+            </div>
           </div>
         ))}
         {busy && <div className="chat-msg a"><div className="bubble">…</div></div>}
@@ -877,7 +961,13 @@ function ChatSection() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && send()}
-          placeholder={trained ? 'Type a message…' : 'Train the model first'}
+          placeholder={
+            trained
+              ? 'Type a message…'
+              : isTraining
+              ? 'Training in progress…'
+              : 'Train the model first'
+          }
           disabled={!trained || busy}
         />
         <button onClick={send} disabled={!trained || busy || !input.trim()}>
@@ -892,7 +982,7 @@ function ChatSection() {
             <input
               type="number"
               min="5"
-              max="240"
+              max="480"
               value={minutes}
               onChange={(e) => setMinutes(e.target.value)}
               style={{ width: 70 }}
@@ -903,8 +993,28 @@ function ChatSection() {
             onClick={startTraining}
             disabled={training}
           >
-            {training ? 'Starting…' : `🚂 Train TinyGPT (${minutes} min)`}
+            {training
+              ? 'Starting…'
+              : `🚂 Train 30M TinyGPT (${minutes} min)`}
           </button>
+        </div>
+      )}
+
+      {wl.journal && wl.journal.length > 0 && (
+        <div className="wl-journal">
+          <h4>🧠 Self-learning journal (latest)</h4>
+          {wl.journal
+            .filter((e) => e.result !== 'no new content')
+            .slice(0, 5)
+            .map((e, i) => (
+              <div key={i} className="wl-entry">
+                {e.titles
+                  ? `${e.titles.length} items: ${e.titles
+                      .slice(0, 2)
+                      .join(' | ')}`
+                  : e.title || JSON.stringify(e).slice(0, 80)}
+              </div>
+            ))}
         </div>
       )}
     </section>

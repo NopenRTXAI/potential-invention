@@ -26,8 +26,8 @@ MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "models",
                          "chat_model")
 
 # special tokens
-PAD, U_TOK, A_TOK, EOT, EOS = 0, 1, 2, 3, 4
-SPECIALS = ["<pad>", "<u>", "<a>", "<eot>", "<eos>"]
+PAD, U_TOK, A_TOK, EOT, EOS, UNK = 0, 1, 2, 3, 4, 5
+SPECIALS = ["<pad>", "<u>", "<a>", "<eot>", "<eos>", "<unk>"]
 WORD_RE = re.compile(r"[a-z']+|[.,!?;:]")
 
 
@@ -50,7 +50,7 @@ class Tokenizer:
         return self
 
     def encode(self, text):
-        return [self.vocab.get(w, self.vocab.get("<unk>", 5))
+        return [self.vocab.get(w, UNK)
                 for w in WORD_RE.findall(text.lower())]
 
     def decode(self, ids):
@@ -68,13 +68,16 @@ class Tokenizer:
 
     @property
     def size(self):
-        return len(self.vocab) + len(SPECIALS) + 1  # +1 for <unk>
+        return len(self.vocab) + len(SPECIALS)
 
 
 # ---------------------------------------------------------------- data
 
-def load_dialogues(path=DATA, limit=None):
-    """Return list of dialogues; each is list of utterance strings."""
+def load_dialogues(path=DATA, limit=None, include_extra=True):
+    """Return list of dialogues; each is list of utterance strings.
+
+    Loads DailyDialog (always) + SODA (data/extra/soda_0.parquet, if present).
+    """
     rows = None
     try:
         import pyarrow.parquet as pq
@@ -87,6 +90,31 @@ def load_dialogues(path=DATA, limit=None):
     for r in rows:
         dialogs.setdefault(r["dialog_id"], []).append(r["utterance"].strip())
     out = [v for _, v in sorted(dialogs.items())]
+    if include_extra:
+        out.extend(load_soda(limit=limit))
+    if limit:
+        out = out[:limit]
+    return out
+
+
+def load_soda(path=None, limit=None):
+    """Load SODA dialogues (allenai/soda) — 440k real-style dialogues."""
+    import glob as _glob
+    paths = [path] if path else sorted(
+        _glob.glob(os.path.join(os.path.dirname(DATA), "extra",
+                                "soda_*.parquet")))
+    out = []
+    for p in paths:
+        try:
+            import pyarrow.parquet as pq
+            t = pq.read_table(p, columns=["dialogue"])
+            for r in t.to_pylist():
+                dl = r.get("dialogue") or []
+                dl = [u.strip() for u in dl if u and u.strip()]
+                if len(dl) >= 2:
+                    out.append(dl)
+        except Exception as e:
+            print(f"soda load skipped ({p}): {e}", flush=True)
     if limit:
         out = out[:limit]
     return out
@@ -128,16 +156,28 @@ def make_samples(tok, dialogues, block):
 
 def train(tok, X, Y, d_model=160, n_layers=4, n_heads=4, block=128,
           epochs=2, batch=24, lr=3e-4, seed=0, log_every=50, max_minutes=45,
-          callback=None):
-    """Train TinyGPT on next-token prediction. Returns (model, history)."""
+          callback=None, resume=None, val_frac=0.02):
+    """Train TinyGPT on next-token prediction. Returns (model, history).
+
+    resume: optional (model, opt_state, hist, start_step) tuple to continue
+    training a saved run (from chat.resume_state()).
+    """
     rng = np.random.default_rng(seed)
-    model = TinyGPT(vocab_size=tok.size, d_model=d_model, n_layers=n_layers,
-                    n_heads=n_heads, block=block, seed=seed)
-    opt = AdamW(model.p, lr=lr)
-    hist = []
+    if resume is not None:
+        model, opt_state, hist, start_step = resume
+        opt = AdamW(model.p, lr=lr)
+        opt.m, opt.v, opt.t = opt_state["m"], opt_state["v"], opt_state["t"]
+        step = start_step
+        print(f"resuming from step {step}", flush=True)
+    else:
+        model = TinyGPT(vocab_size=tok.size, d_model=d_model,
+                       n_layers=n_layers, n_heads=n_heads, block=block,
+                       seed=seed)
+        opt = AdamW(model.p, lr=lr)
+        hist = []
+        step = 0
     n = X.shape[0]
     t0 = time.time()
-    step = 0
     for ep in range(epochs):
         order = rng.permutation(n)
         for bstart in range(0, n, batch):
@@ -199,7 +239,12 @@ class ChatBot:
 
 # ---------------------------------------------------------------- persistence
 
-def save(model, tok, hist, out_dir=MODEL_DIR):
+def save(model, tok, hist, out_dir=MODEL_DIR, opt=None):
+    """Save model (fp16) + tokenizer + history + optional optimizer state.
+
+    Optimizer state (Adam moments) is saved fp32 in opt_state.npz so a long
+    run can be resumed without losing momentum.
+    """
     os.makedirs(out_dir, exist_ok=True)
     np.savez_compressed(os.path.join(out_dir, "model.npz"),
                         **{k: v.astype(np.float16) for k, v in
@@ -212,8 +257,16 @@ def save(model, tok, hist, out_dir=MODEL_DIR):
         "history": hist[-20:],
         "final_loss": hist[-1]["loss"] if hist else None,
     }
+    if opt is not None:
+        meta["steps"] = int(opt.t)
     with open(os.path.join(out_dir, "metadata.json"), "w") as f:
         json.dump(meta, f)
+    if opt is not None:
+        np.savez_compressed(
+            os.path.join(out_dir, "opt_state.npz"),
+            **{f"m.{k}": v for k, v in opt.m.items()},
+            **{f"v.{k}": v for k, v in opt.v.items()},
+            t=np.int64(opt.t))
 
 
 def load(out_dir=MODEL_DIR):
@@ -229,3 +282,16 @@ def load(out_dir=MODEL_DIR):
     for k in model.p:
         model.p[k] = z[k].astype(np.float32)
     return model, tok, meta
+
+
+def load_opt_state(out_dir=MODEL_DIR):
+    """Load saved AdamW moments for resuming a long run. None if absent."""
+    path = os.path.join(out_dir, "opt_state.npz")
+    if not os.path.exists(path):
+        return None
+    z = np.load(path)
+    return {"m": {k[2:]: v.astype(np.float32) for k, v in z.items()
+                  if k.startswith("m.")},
+            "v": {k[2:]: v.astype(np.float32) for k, v in z.items()
+                  if k.startswith("v.")},
+            "t": int(z["t"])}

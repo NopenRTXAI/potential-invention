@@ -39,8 +39,21 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ message, history }),
     }),
+  chatSmart: (message, history, useWeb = true) =>
+    req('/api/chat/smart', {
+      method: 'POST',
+      body: JSON.stringify({ message, history, use_web: useWeb }),
+    }),
   chatTrain: (cfg = {}) =>
     req('/api/chat/train', { method: 'POST', body: JSON.stringify(cfg) }),
+  weblearnStatus: () => req('/api/weblearn/status'),
+  weblearnStart: (cfg = {}) =>
+    req('/api/weblearn/start', { method: 'POST', body: JSON.stringify(cfg) }),
+  weblearnStop: () =>
+    req('/api/weblearn/stop', { method: 'POST' }),
+  weblearnNow: () =>
+    req('/api/weblearn/now', { method: 'POST' }),
+  webSearch: (q) => req(`/api/weblearn/search?q=${encodeURIComponent(q)}`),
 };
 
 export const fmt = {

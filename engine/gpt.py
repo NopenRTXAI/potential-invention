@@ -123,9 +123,12 @@ class TinyGPT:
             qkv = h1n @ p[f"{pre}.Wqkv"] + p[f"{pre}.bqkv"]  # (B,T,3d)
             q, k, v = np.split(qkv, 3, axis=-1)
             # reshape to heads
-            qh = q.reshape(B, T, self.H, self.hd).transpose(0, 2, 1, 3)
-            kh = k.reshape(B, T, self.H, self.hd).transpose(0, 2, 1, 3)
-            vh = v.reshape(B, T, self.H, self.hd).transpose(0, 2, 1, 3)
+            qh = np.ascontiguousarray(
+                q.reshape(B, T, self.H, self.hd).transpose(0, 2, 1, 3))
+            kh = np.ascontiguousarray(
+                k.reshape(B, T, self.H, self.hd).transpose(0, 2, 1, 3))
+            vh = np.ascontiguousarray(
+                v.reshape(B, T, self.H, self.hd).transpose(0, 2, 1, 3))
             att = qh @ kh.transpose(0, 1, 3, 2) / np.sqrt(self.hd)
             att = att + self._mask[:T, :T]
             A = softmax(att)                                # (B,H,T,T)
@@ -205,7 +208,8 @@ class TinyGPT:
             douth = dx @ p[f"{pre}.Wo"].T
             g[f"{pre}.Wo"] += outh_T(c["outh"], dx, self.d)
             g[f"{pre}.bo"] += dx.sum(axis=(0, 1))
-            douth_h = douth.reshape(B, T, self.H, self.hd).transpose(0, 2, 1, 3)
+            douth_h = np.ascontiguousarray(
+                douth.reshape(B, T, self.H, self.hd).transpose(0, 2, 1, 3))
             dvh = c["A"].transpose(0, 1, 3, 2) @ douth_h
             dA = douth_h @ c["vh"].transpose(0, 1, 3, 2)
             # softmax backward (per row)
@@ -293,11 +297,20 @@ class AdamW:
     def step(self, params, grads, lr=None):
         lr = self.lr if lr is None else lr
         self.t += 1
+        bc1 = 1 - self.b1 ** self.t
+        bc2 = 1 - self.b2 ** self.t
         for k in params:
             gk = grads[k]
-            self.m[k] = self.b1 * self.m[k] + (1 - self.b1) * gk
-            self.v[k] = self.b2 * self.v[k] + (1 - self.b2) * (gk * gk)
-            mh = self.m[k] / (1 - self.b1 ** self.t)
-            vh = self.v[k] / (1 - self.b2 ** self.t)
-            params[k] -= lr * (mh / (np.sqrt(vh) + self.eps)
-                               + self.wd * params[k])
+            m = self.m[k]; v = self.v[k]; p = params[k]
+            # in-place: m = b1*m + (1-b1)*g
+            m *= self.b1
+            m += (1 - self.b1) * gk
+            v *= self.b2
+            v += (1 - self.b2) * (gk * gk)
+            # update: p -= lr * (m/bc1 / (sqrt(v/bc2)+eps) + wd*p)
+            np.sqrt(v / bc2, out=v)          # v now holds sqrt(vh)
+            v += self.eps
+            np.divide(m, bc1, out=m)         # m now holds mh
+            np.divide(m, v, out=m)           # m now holds mh/vh
+            m += self.wd * p
+            p -= lr * m
