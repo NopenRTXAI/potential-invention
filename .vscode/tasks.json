@@ -7,14 +7,22 @@
       "command": "python3",
       "args": ["-m", "engine.server"],
       "isBackground": true,
-      "problemMatcher": [],
+      "problemMatcher": {
+        "owner": "tinygpt-server",
+        "pattern": {
+          "regexp": "^(ERROR|Traceback).*"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^.*Starting server process|^.*Started server process",
+          "endsPattern": "^.*Uvicorn running"
+        }
+      },
       "presentation": {
         "reveal": "always",
         "panel": "dedicated"
       },
-      "runOptions": {
-        "runOn": "default"
-      }
+      "runOptions": {}
     },
     {
       "label": "Start Training (30M, 4h)",
