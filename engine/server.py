@@ -7,6 +7,7 @@ Usage:
 """
 
 import argparse
+import json
 
 
 def main():
@@ -442,6 +443,14 @@ def _chat_train_thread(req):
 
 @app.get("/api/chat/status")
 def chat_status():
+    standalone_status = os.path.join("models", "chat_ckpt", "status.json")
+    disk_progress = None
+    if os.path.exists(standalone_status):
+        try:
+            with open(standalone_status) as f:
+                disk_progress = json.load(f)
+        except (OSError, ValueError):
+            disk_progress = None
     if STATE["chat_bot"] is None:
         try:
             from . import chat as C
@@ -452,9 +461,9 @@ def chat_status():
             pass
     return {
         "trained": STATE["chat_bot"] is not None,
-        "training": STATE["chat_thread"] is not None
-                    and STATE["chat_thread"].is_alive(),
-        "progress": STATE["chat_progress"],
+        "training": (STATE["chat_thread"] is not None
+                and STATE["chat_thread"].is_alive()),
+        "progress": disk_progress or STATE["chat_progress"],
         "meta": STATE["chat_meta"],
         "error": STATE["chat_error"],
     }

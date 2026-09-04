@@ -40,6 +40,18 @@
       }
     },
     {
+      "label": "Standalone Training (30M, resumable)",
+      "type": "shell",
+      "command": "python3",
+      "args": ["scripts/train_chat.py", "--minutes", "240"],
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
       "label": "Check Training Progress",
       "type": "shell",
       "command": "curl",
