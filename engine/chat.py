@@ -22,13 +22,20 @@ from .gpt import TinyGPT, AdamW, softmax
 
 DATA = os.path.join(os.path.dirname(__file__), "..", "data",
                     "dailydialog.parquet")
+CURATED = os.path.join(os.path.dirname(__file__), "..", "data", "curated",
+                       "curriculum.jsonl")
+CURATED_SEED = os.path.join(os.path.dirname(__file__), "..", "data", "curated",
+                            "seed_dialogues.jsonl")
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "models",
                          "chat_model")
 
 # special tokens
 PAD, U_TOK, A_TOK, EOT, EOS, UNK = 0, 1, 2, 3, 4, 5
 SPECIALS = ["<pad>", "<u>", "<a>", "<eot>", "<eos>", "<unk>"]
-WORD_RE = re.compile(r"[a-z']+|[.,!?;:]")
+# Unicode words preserve Arabic, accented French, English, and code symbols.
+WORD_RE = re.compile(
+    r"[^\W_]+(?:['’][^\W_]+)?|[.,!?;:(){}\[\]<>+=*/%#@&|^~`-]",
+    re.UNICODE)
 
 
 # ---------------------------------------------------------------- tokenizer
@@ -50,8 +57,8 @@ class Tokenizer:
         return self
 
     def encode(self, text):
-        return [self.vocab.get(w, UNK)
-                for w in WORD_RE.findall(text.lower())]
+        text = text.lower().replace("’", "'")
+        return [self.vocab.get(w, UNK) for w in WORD_RE.findall(text)]
 
     def decode(self, ids):
         out = []
@@ -63,7 +70,9 @@ class Tokenizer:
             out.append(self.inv.get(i, "?"))
         text = " ".join(out)
         text = re.sub(r" ([.,!?;:])", r"\1", text)
-        text = re.sub(r"(')", r"\1", text)
+        text = re.sub(r" ([)}\]])", r"\1", text)
+        text = re.sub(r"([(\[{]) ", r"\1", text)
+        text = re.sub(r" (['’])", r"\1", text)
         return text.strip()
 
     @property
@@ -73,7 +82,8 @@ class Tokenizer:
 
 # ---------------------------------------------------------------- data
 
-def load_dialogues(path=DATA, limit=None, include_extra=True):
+def load_dialogues(path=DATA, limit=None, include_extra=True,
+                   include_curated=True):
     """Return list of dialogues; each is list of utterance strings.
 
     Loads DailyDialog (always) + SODA (data/extra/soda_0.parquet, if present).
@@ -92,8 +102,29 @@ def load_dialogues(path=DATA, limit=None, include_extra=True):
     out = [v for _, v in sorted(dialogs.items())]
     if include_extra:
         out.extend(load_soda(limit=limit))
+    if include_curated:
+        out.extend(load_curated())
     if limit:
         out = out[:limit]
+    return out
+
+
+def load_curated(path=CURATED):
+    """Load reviewed multilingual identity, language, and coding examples."""
+    if not os.path.exists(path):
+        path = CURATED_SEED
+    if not os.path.exists(path):
+        return []
+    out = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            try:
+                row = json.loads(line)
+                dialogue = [str(x).strip() for x in row["dialogue"]]
+                if len(dialogue) >= 2 and all(dialogue):
+                    out.append(dialogue)
+            except (ValueError, KeyError, TypeError):
+                continue
     return out
 
 

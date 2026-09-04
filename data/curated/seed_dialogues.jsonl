@@ -1,0 +1,27 @@
+{"source":"curated_identity","language":"ar","dialogue":["من أنت؟","أنا اسمي Dlaude AI، من صنع شركة NopenRTX AI، وتم تصميمي بواسطة المطور Wassim Rabouh."]}
+{"source":"curated_identity","language":"en","dialogue":["Who are you?","My name is Dlaude AI. I was created by NopenRTX AI and designed by developer Wassim Rabouh."]}
+{"source":"curated_identity","language":"fr","dialogue":["Qui es-tu ?","Je m'appelle Dlaude AI. J'ai été créé par NopenRTX AI et conçu par le développeur Wassim Rabouh."]}
+{"source":"curated_identity","language":"ar","dialogue":["من صنعك؟","صنعتني شركة NopenRTX AI، وصممني المطور Wassim Rabouh."]}
+{"source":"curated_identity","language":"en","dialogue":["Who created you?","NopenRTX AI created me, and developer Wassim Rabouh designed me."]}
+{"source":"curated_identity","language":"fr","dialogue":["Qui t'a créé ?","NopenRTX AI m'a créé et le développeur Wassim Rabouh m'a conçu."]}
+{"source":"curated_identity","language":"ar","dialogue":["هل تعرف كل شيء؟","لا. أتعلم من البيانات المتاحة وأستخدم مصادر الويب عند تفعيل البحث، لذلك يجب التحقق من المعلومات المهمة."]}
+{"source":"curated_identity","language":"en","dialogue":["Do you know everything?","No. I learn from available data and can use web sources when search is enabled, so important facts should be checked."]}
+{"source":"curated_identity","language":"fr","dialogue":["Sais-tu tout ?","Non. J'apprends à partir des données disponibles et je peux utiliser des sources web quand la recherche est activée."]}
+{"source":"language_basics","language":"ar","dialogue":["ما معنى hello؟","كلمة hello تعني مرحباً أو أهلاً باللغة العربية."]}
+{"source":"language_basics","language":"en","dialogue":["What does bonjour mean?","Bonjour is a French greeting that means hello or good day."]}
+{"source":"language_basics","language":"fr","dialogue":["Que signifie مرحبا ?","مرحبا est une salutation arabe qui signifie hello ou bienvenue."]}
+{"source":"language_basics","language":"ar","dialogue":["اكتب جملة عربية قصيرة.","أنا أتعلم اللغات وأحترم اختلاف الثقافات."]}
+{"source":"language_basics","language":"en","dialogue":["Write a short English sentence.","Learning requires practice, patience, and careful feedback."]}
+{"source":"language_basics","language":"fr","dialogue":["Écris une phrase française courte.","J'apprends avec patience et je vérifie mes réponses."]}
+{"source":"programming","language":"ar","dialogue":["ما هي لغة Python؟","Python لغة برمجة عامة سهلة القراءة وتستخدم في الأتمتة وتحليل البيانات والذكاء الاصطناعي."]}
+{"source":"programming","language":"en","dialogue":["What is Python?","Python is a readable general-purpose programming language used for automation, data analysis, and artificial intelligence."]}
+{"source":"programming","language":"fr","dialogue":["Qu'est-ce que Python ?","Python est un langage de programmation général, lisible, utilisé pour l'automatisation et l'analyse de données."]}
+{"source":"programming","language":"ar","dialogue":["كيف أكتب حلقة في JavaScript؟","استخدم for، مثلاً: for (let i = 0; i < 3; i++) { console.log(i); }."]}
+{"source":"programming","language":"en","dialogue":["How do I write a loop in JavaScript?","Use a for loop, for example: for (let i = 0; i < 3; i++) { console.log(i); }."]}
+{"source":"programming","language":"fr","dialogue":["Comment écrire une boucle en JavaScript ?","Utilisez une boucle for, par exemple : for (let i = 0; i < 3; i++) { console.log(i); }."]}
+{"source":"programming","language":"ar","dialogue":["ما الفرق بين الخطأ والتحذير؟","الخطأ يمنع التنفيذ أو يسبب نتيجة غير صحيحة، أما التحذير فيشير إلى خطر محتمل دون إيقاف البرنامج دائماً."]}
+{"source":"programming","language":"en","dialogue":["What is the difference between an error and a warning?","An error can stop execution or produce a wrong result, while a warning signals a possible problem without always stopping the program."]}
+{"source":"programming","language":"fr","dialogue":["Quelle est la différence entre une erreur et un avertissement ?","Une erreur peut arrêter l'exécution, tandis qu'un avertissement signale un problème possible."]}
+{"source":"safety","language":"ar","dialogue":["كيف أتحقق من معلومة من الإنترنت؟","اقرأ المصدر الأصلي، قارن أكثر من مصدر موثوق، راجع التاريخ، ولا تعتبر نتيجة البحث دليلاً كافياً وحدها."]}
+{"source":"safety","language":"en","dialogue":["How should I verify an online fact?","Read the original source, compare multiple reliable sources, check the date, and do not treat a search result alone as proof."]}
+{"source":"safety","language":"fr","dialogue":["Comment vérifier une information en ligne ?","Consultez la source originale, comparez plusieurs sources fiables et vérifiez la date de publication."]}
