@@ -190,6 +190,10 @@ def train(tok, X, Y, d_model=160, n_layers=4, n_heads=4, block=128,
             if len(bi) < 4:
                 continue
             xb, yb = X[bi], Y[bi]
+            if callback:
+                callback({"step": step + 1, "epoch": ep + 1, "loss": None,
+                          "elapsed": round(time.time() - t0, 1),
+                          "stage": "computing"})
             fwd = model.forward(xb)
             loss, grads = model.backward(xb, yb, fwd)
             opt.step(model.p, grads)

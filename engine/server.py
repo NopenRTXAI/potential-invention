@@ -389,8 +389,12 @@ def _chat_train_thread(req):
 
         def cb(entry):
             STATE["chat_progress"].update(
-                steps=entry["step"], loss=round(entry["loss"], 4),
-                epoch=entry["epoch"], elapsed_min=round(entry["elapsed"] / 60, 1))
+                steps=entry["step"],
+                loss=(round(entry["loss"], 4)
+                      if entry.get("loss") is not None else None),
+                epoch=entry["epoch"],
+                elapsed_min=round(entry["elapsed"] / 60, 1),
+                stage=entry.get("stage", "training"))
 
         # auto-resume from checkpoint if present
         resume = None
@@ -414,7 +418,7 @@ def _chat_train_thread(req):
         model, hist = C.train(
             tok, X, Y, d_model=req.d_model, n_layers=req.n_layers,
             n_heads=req.n_heads, block=req.block, epochs=req.epochs,
-            batch=32, lr=3e-4, max_minutes=req.minutes, callback=cb,
+            batch=8, lr=3e-4, max_minutes=req.minutes, callback=cb,
             resume=resume, ckpt_every_min=15, ckpt_dir=ckpt_dir)
         C.save(model, tok, hist)
         bot = C.ChatBot(model, tok, block=req.block)
