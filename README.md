@@ -117,3 +117,48 @@ Report · Settings
   research data, not hidden.
 - Some mechanisms (e.g. random-projection gradients) simply fail; they remain
   in the database as negative results.
+
+## TinyGPT — real conversational model (pure NumPy)
+
+A real GPT-style transformer trained from scratch on this machine, no deep
+learning framework — every matmul, attention head, and gradient is hand-written
+NumPy, numerically verified (relative error ~1e-8 vs finite differences).
+
+- **Architecture:** 3 layers, 4 heads, d_model=128, block=96, weight-tied
+  output head → **1,248,128 parameters**
+- **Data:** 11,118 real human dialogues (DailyDialog via HuggingFace
+  `pixelsandpointers/better_daily_dialog`) → 18,305 training samples,
+  5,006-word vocabulary
+- **Training:** AdamW, 4 epochs / 2,288 steps / ~38 min on 4 CPU cores,
+  cross-entropy loss **9.1 → 3.46**
+- **Inference:** speaker-aware autoregressive sampling (temperature 0.85,
+  top-k 25) with conversation history
+
+### Try it
+
+Dashboard → **Chat** section, or:
+
+```bash
+curl -X POST localhost:8000/api/chat -H 'Content-Type: application/json' \
+     -d '{"message": "hello how are you", "history": []}'
+```
+
+### Rebuild from scratch
+
+```bash
+# data/ and models/ are gitignored — re-fetch the dataset:
+curl -L -o data/dailydialog.parquet \
+  'https://huggingface.co/api/datasets/pixelsandpointers/better_daily_dialog/parquet/default/train/0.parquet'
+
+# then retrain (background thread, watch progress at /api/chat/status):
+curl -X POST localhost:8000/api/chat/train -H 'Content-Type: application/json' \
+     -d '{"minutes": 45, "epochs": 4}'
+```
+
+### Honest quality expectations
+
+This is a 1.25M-parameter model trained 38 minutes on 4 CPU cores. It produces
+real generated English (not templates), but replies are often grammatically
+broken or off-topic — ChatGPT-class quality needs billions of parameters and
+GPU-scale training. Longer retraining (e.g. `minutes: 120`) improves fluency
+but will not change that order of magnitude.
