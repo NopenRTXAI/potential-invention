@@ -1,0 +1,48 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "AI Engine Server (port 8000)",
+      "type": "shell",
+      "command": "python3",
+      "args": ["-m", "engine.server"],
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "runOptions": {
+        "runOn": "default"
+      }
+    },
+    {
+      "label": "Start Training (30M, 4h)",
+      "type": "shell",
+      "command": "curl",
+      "args": [
+        "-s", "-X", "POST", "http://localhost:8000/api/chat/train",
+        "-H", "Content-Type: application/json",
+        "-d", "{\"minutes\": 240, \"d_model\": 512, \"n_layers\": 7, \"n_heads\": 8, \"block\": 128, \"vocab\": 16000, \"epochs\": 2}"
+      ],
+      "isBackground": false,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Check Training Progress",
+      "type": "shell",
+      "command": "curl",
+      "args": [
+        "-s", "http://localhost:8000/api/chat/status"
+      ],
+      "isBackground": false,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always"
+      }
+    }
+  ]
+}

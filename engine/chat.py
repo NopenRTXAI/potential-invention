@@ -156,11 +156,15 @@ def make_samples(tok, dialogues, block):
 
 def train(tok, X, Y, d_model=160, n_layers=4, n_heads=4, block=128,
           epochs=2, batch=24, lr=3e-4, seed=0, log_every=50, max_minutes=45,
-          callback=None, resume=None, val_frac=0.02):
+          callback=None, resume=None, val_frac=0.02, ckpt_every_min=15,
+          ckpt_dir=None):
     """Train TinyGPT on next-token prediction. Returns (model, history).
 
     resume: optional (model, opt_state, hist, start_step) tuple to continue
     training a saved run (from chat.resume_state()).
+    ckpt_every_min: save a resumable checkpoint every N minutes so an
+    interrupted run (server restart, terminal close) continues where it
+    left off instead of starting from zero.
     """
     rng = np.random.default_rng(seed)
     if resume is not None:
@@ -178,6 +182,7 @@ def train(tok, X, Y, d_model=160, n_layers=4, n_heads=4, block=128,
         step = 0
     n = X.shape[0]
     t0 = time.time()
+    last_ckpt = t0
     for ep in range(epochs):
         order = rng.permutation(n)
         for bstart in range(0, n, batch):
@@ -198,6 +203,15 @@ def train(tok, X, Y, d_model=160, n_layers=4, n_heads=4, block=128,
                 print(msg, flush=True)
                 if callback:
                     callback(hist[-1])
+            now = time.time()
+            if (ckpt_every_min and ckpt_dir and
+                    (now - last_ckpt) / 60 >= ckpt_every_min):
+                last_ckpt = now
+                try:
+                    save(model, tok, hist, out_dir=ckpt_dir, opt=opt)
+                    print(f"checkpoint saved at step {step}", flush=True)
+                except Exception as e:
+                    print(f"checkpoint save failed: {e}", flush=True)
             if (time.time() - t0) / 60 > max_minutes:
                 print(f"time budget reached at step {step}", flush=True)
                 return model, hist

@@ -373,7 +373,11 @@ def report():
 # ---------------------------------------------------------------- chat
 
 def _chat_train_thread(req):
-    """Train TinyGPT on DailyDialog+SODA in the background (30M config)."""
+    """Train TinyGPT on DailyDialog+SODA in the background (30M config).
+
+    Auto-resumes from the last checkpoint if one exists (server restart,
+    terminal close, etc.) and saves a resumable checkpoint every 15 min.
+    """
     try:
         from . import chat as C
         dialogs = C.load_dialogues()
@@ -388,10 +392,30 @@ def _chat_train_thread(req):
                 steps=entry["step"], loss=round(entry["loss"], 4),
                 epoch=entry["epoch"], elapsed_min=round(entry["elapsed"] / 60, 1))
 
+        # auto-resume from checkpoint if present
+        resume = None
+        ckpt_dir = os.path.join("models", "chat_ckpt")
+        try:
+            opt_state = C.load_opt_state(out_dir=ckpt_dir)
+            if opt_state is not None:
+                model, tok_c, meta = C.load(out_dir=ckpt_dir)
+                if (meta["d_model"] == req.d_model and
+                        meta["n_layers"] == req.n_layers and
+                        meta["block"] == req.block and
+                        meta["vocab_size"] == tok.size):
+                    hist = meta.get("history") or []
+                    start_step = int(meta.get("steps") or 0)
+                    resume = (model, opt_state, hist, start_step)
+                    print(f"resuming 30M run from step {start_step}",
+                          flush=True)
+        except Exception as e:
+            print(f"no checkpoint to resume ({e})", flush=True)
+
         model, hist = C.train(
             tok, X, Y, d_model=req.d_model, n_layers=req.n_layers,
             n_heads=req.n_heads, block=req.block, epochs=req.epochs,
-            batch=32, lr=3e-4, max_minutes=req.minutes, callback=cb)
+            batch=32, lr=3e-4, max_minutes=req.minutes, callback=cb,
+            resume=resume, ckpt_every_min=15, ckpt_dir=ckpt_dir)
         C.save(model, tok, hist)
         bot = C.ChatBot(model, tok, block=req.block)
         STATE["chat_bot"] = bot
