@@ -87,6 +87,41 @@ def stream_dialogues(dataset_id, split="train", config=None, token=None,
         yield batch
 
 
+def stream_texts(dataset_id, split="train", config=None, token=None,
+                 max_texts=None, batch_size=128):
+    """Yield cleaned text records from a streaming text corpus.
+
+    This is the right interface for FineWeb-style datasets whose records have
+    one `text` field rather than alternating dialogue turns.
+    """
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:
+        raise RuntimeError(
+            "Install streaming support with: pip install datasets") from exc
+    kwargs = {"split": split, "streaming": True}
+    if config:
+        kwargs["name"] = config
+    if token:
+        kwargs["token"] = token
+    stream = load_dataset(dataset_id, **kwargs)
+    batch = []
+    count = 0
+    for record in stream:
+        text = clean_text(record.get("text"))
+        if not text:
+            continue
+        batch.append(text)
+        count += 1
+        if len(batch) >= batch_size:
+            yield batch
+            batch = []
+        if max_texts is not None and count >= max_texts:
+            break
+    if batch:
+        yield batch
+
+
 def stream_stats(dataset_id, split="train", config=None, token=None,
                  max_dialogues=1000):
     """Inspect a stream without downloading it or consuming all of it."""
