@@ -52,6 +52,26 @@
       }
     },
     {
+      "label": "FineWeb Streaming Training (10k docs)",
+      "type": "shell",
+      "command": "python3",
+      "args": [
+        "scripts/train_fineweb.py",
+        "--dataset", "HuggingFaceFW/fineweb-edu",
+        "--config", "sample-10BT",
+        "--max-texts", "10000",
+        "--minutes", "240",
+        "--epochs", "1",
+        "--batch", "8"
+      ],
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
       "label": "Check Training Progress",
       "type": "shell",
       "command": "curl",
